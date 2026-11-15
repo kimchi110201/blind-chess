@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>블라인드 체스</title>
+  <style>
+    body { font-family: sans-serif; max-width: 560px; margin: 20px auto; padding: 0 12px; }
+    .help { background: #f4f4f4; border-radius: 8px; padding: 10px 18px; margin: 16px 0; font-size: 14px; line-height: 1.8; }
+    .help h3 { margin: 6px 0; }
+    .help ul { margin: 4px 0; padding-left: 20px; }
+    .help code { background: #e2e2e2; padding: 1px 6px; border-radius: 4px; }
+    details.help summary { cursor: pointer; font-weight: bold; }
+
+    table.moves { border-collapse: collapse; width: 100%; }
+    .moves th, .moves td { padding: 4px 10px; border-bottom: 1px solid #ddd; text-align: left; }
+    .moves th { background: #f4f4f4; }
+    .moves td.num { color: #888; width: 15%; }
+    .moves td.mv.sel { background: #ffe9a8; font-weight: bold; }
+    .replaying .moves td.mv { cursor: pointer; }
+    .replaying .moves td.mv:hover { background: #fff3cf; }
+
+    /* 8줄을 모두 같은 높이로 고정해요 */
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
+      width: min(100%, 400px);
+      aspect-ratio: 1 / 1;
+      border: 2px solid #555;
+      margin: 10px 0;
+    }
+    .sq { position: relative; display: flex; align-items: center; justify-content: center; aspect-ratio: 1 / 1; min-width: 0; min-height: 0; overflow: hidden; font-size: clamp(22px, 7vw, 38px); line-height: 1; }
+    .sq.light { background: #f0d9b5; }
+    .sq.dark { background: #b58863; }
+    .sq small { position: absolute; font-size: 10px; color: #333; }
+    .sq .r { top: 2px; left: 3px; }
+    .sq .f { bottom: 2px; right: 3px; }
+    .sq span.w { color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000, 0 0 3px #000; }
+    .sq span.b { color: #000; }
+    .replay-controls button { font-size: 16px; padding: 4px 12px; }
+
+    #offerBox { background: #fff3cf; border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+    #readyArea { background: #eef5ff; border-radius: 8px; padding: 8px 14px; margin: 12px 0; }
+    #readyBtn { font-size: 16px; padding: 6px 16px; }
+    #notice { color: #2a6fdb; }
+  </style>
+</head>
+<body>
+  <h1>블라인드 체스</h1>
+
+  <div id="lobby">
+    <button id="createBtn">방 만들기</button>
+    <p>또는 친구가 알려준 코드 입력:</p>
+    <input id="codeInput" placeholder="방 코드" maxlength="6">
+    <button id="joinBtn">입장</button>
+
+    <div class="help">
+      <h3>기물 움직이는 방법</h3>
+      <p>판은 보이지 않아요. 수를 글자로 입력해서 두세요.</p>
+      <ul>
+        <li><b>폰</b>은 칸 이름만 써요: <code>e4</code>, <code>d5</code></li>
+        <li><b>다른 기물</b>은 기물 글자 + 도착 칸이에요: <code>Nf3</code>, <code>Bc4</code>, <code>Qh5</code>
+          <br>N 나이트 · B 비숍 · R 룩 · Q 퀸 · K 킹 (반드시 <b>대문자</b>)</li>
+        <li><b>잡을 때</b>는 x를 넣어요: <code>Nxe5</code>, 폰은 <code>exd5</code></li>
+        <li><b>캐슬링</b>은 알파벳 대문자 O로 써요: <code>O-O</code> (킹사이드), <code>O-O-O</code> (퀸사이드)</li>
+        <li><b>프로모션</b>은 <code>e8=Q</code> 처럼 써요.</li>
+        <li><b>같은 기물 2개가 같은 칸에 갈 수 있을 때</b>는 열이나 줄을 붙여요: <code>Nbd2</code>, <code>R1d3</code></li>
+      </ul>
+      <p>둘 수 없는 수를 입력하면 안내가 나오고, 다시 입력하면 돼요. 게임이 끝나면 체스판으로 기보를 볼 수 있어요.</p>
+    </div>
+  </div>
+
+  <p id="message"></p>
+
+  <div id="game" style="display:none">
+    <p id="status"></p>
+    <p id="notice"></p>
+
+    <!-- 게임 시작 전 / 게임이 끝난 뒤에 보이는 영역 -->
+    <div id="readyArea" style="display:none">
+      <p id="lobbyInfo"></p>
+      <button id="swapBtn" style="display:none">색 바꾸기 (백 ↔ 흑)</button>
+      <button id="readyBtn">게임 시작</button>
+      <p id="readyNote"></p>
+    </div>
+
+    <!-- 게임 중에만 보이는 영역 -->
+    <div id="playArea" style="display:none">
+      <details class="help">
+        <summary>기물 이동법 다시 보기</summary>
+        <ul>
+          <li>폰: <code>e4</code> / 기물: <code>Nf3</code>, <code>Bc4</code>, <code>Rd1</code>, <code>Qh5</code>, <code>Ke2</code></li>
+          <li>잡기: <code>Nxe5</code>, <code>exd5</code> / 캐슬링: <code>O-O</code>, <code>O-O-O</code></li>
+          <li>프로모션: <code>e8=Q</code> / 구분: <code>Nbd2</code>, <code>R1d3</code></li>
+        </ul>
+      </details>
+
+      <div id="inputArea">
+        <input id="moveInput" placeholder="수 입력 (예: e4, Nf3)" autocomplete="off">
+        <button id="moveBtn">두기</button>
+      </div>
+      <p id="error" style="color:crimson"></p>
+
+      <div id="actionArea">
+        <button id="drawBtn">무승부 제안</button>
+        <button id="resignBtn">기권</button>
+      </div>
+      <div id="offerBox" style="display:none">
+        상대가 무승부를 제안했어요.
+        <button id="acceptDrawBtn">수락</button>
+        <button id="declineDrawBtn">거절</button>
+      </div>
+    </div>
+
+    <div id="replayArea" style="display:none">
+      <h3>기보 보기</h3>
+      <div id="board"></div>
+      <div class="replay-controls">
+        <button id="firstBtn">⏮</button>
+        <button id="prevBtn">◀</button>
+        <button id="nextBtn">▶</button>
+        <button id="lastBtn">⏭</button>
+        <span id="replayLabel"></span>
+      </div>
+      <p style="font-size:13px;color:#666">기보에서 수를 클릭하거나 키보드 ← → 로도 넘길 수 있어요.</p>
+    </div>
+
+    <div id="historyWrap" style="display:none">
+      <h3>수 기록</h3>
+      <div id="historyBox">
+        <table class="moves">
+          <thead><tr><th>#</th><th>백</th><th>흑</th></tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const $ = (id) => document.getElementById(id);
+
+    const message = $('message');
+    const gameEl = $('game');
+    const statusEl = $('status');
+    const noticeEl = $('notice');
+    const errorEl = $('error');
+    const readyArea = $('readyArea');
+    const lobbyInfo = $('lobbyInfo');
+    const swapBtn = $('swapBtn');
+    const readyBtn = $('readyBtn');
+    const readyNote = $('readyNote');
+    const playArea = $('playArea');
+    const historyWrap = $('historyWrap');
+    const historyBody = $('historyBody');
+    const historyBox = $('historyBox');
+    const moveInput = $('moveInput');
+    const moveBtn = $('moveBtn');
+    const boardEl = $('board');
+    const replayArea = $('replayArea');
+    const replayLabel = $('replayLabel');
+    const drawBtn = $('drawBtn');
+    const offerBox = $('offerBox');
+
+    let myColor = null;    // 'white' 또는 'black'
+    let turn = 'w';        // 지금 차례
+    let gameEnded = false;
+    let replayFens = null; // 게임이 끝나면 채워져요
+    let replayIndex = 0;
+    let replayFlip = false; // 기보 판을 뒤집어서 볼지 (흑이었으면 true)
+
+    const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟\uFE0E' };
+
+    function isMyTurn() {
+      return (myColor === 'white' && turn === 'w') ||
+             (myColor === 'black' && turn === 'b');
+    }
+
+    function showStatus(extra) {
+      if (gameEnded) return;
+      const colorKo = myColor === 'white' ? '백' : '흑';
+      const turnText = isMyTurn() ? '내 차례예요!' : '상대방 차례예요. 기다리는 중...';
+      statusEl.textContent = '나는 ' + colorKo + ' / ' + turnText + (extra || '');
+    }
+
+    function resetDrawUI() {
+      drawBtn.disabled = false;
+      drawBtn.textContent = '무승부 제안';
+      offerBox.style.display = 'none';
+    }
+
+    // 수 기록을 세로 표로 그리기
+    function renderHistory(history) {
+      historyBody.innerHTML = '';
+      if (history.length === 0) {
+        historyBody.innerHTML = '<tr><td colspan="3">(아직 없음)</td></tr>';
+        return;
+      }
+      for (let i = 0; i < history.length; i += 2) {
+        const tr = document.createElement('tr');
+        let html = '<td class="num">' + (i / 2 + 1) + '.</td>';
+        html += '<td class="mv" data-i="' + i + '">' + history[i] + '</td>';
+        html += '<td class="mv" data-i="' + (i + 1) + '">' + (history[i + 1] || '') + '</td>';
+        tr.innerHTML = html;
+        historyBody.appendChild(tr);
+      }
+    }
+
+    // FEN 문장으로 체스판 그리기
+    function renderBoard(fen) {
+      const rows = fen.split(' ')[0].split('/');
+      const grid = rows.map((row) => {
+        const line = [];
+        for (const ch of row) {
+          if (/\d/.test(ch)) {
+            for (let k = 0; k < Number(ch); k++) line.push('');
+          } else {
+            line.push(ch);
+          }
+        }
+        return line;
+      });
+
+      boardEl.innerHTML = '';
+      for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+          const r = replayFlip ? 7 - i : i;
+          const c = replayFlip ? 7 - j : j;
+          const piece = grid[r][c];
+
+          const sq = document.createElement('div');
+          sq.className = 'sq ' + ((r + c) % 2 === 0 ? 'light' : 'dark');
+
+          if (piece) {
+            const span = document.createElement('span');
+            span.textContent = GLYPH[piece.toLowerCase()];
+            span.className = piece === piece.toUpperCase() ? 'w' : 'b';
+            sq.appendChild(span);
+          }
+          if (j === 0) {
+            const s = document.createElement('small');
+            s.className = 'r';
+            s.textContent = 8 - r;
+            sq.appendChild(s);
+          }
+          if (i === 7) {
+            const s = document.createElement('small');
+            s.className = 'f';
+            s.textContent = 'abcdefgh'[c];
+            sq.appendChild(s);
+          }
+          boardEl.appendChild(sq);
+        }
+      }
+    }
+
+    // 기보 보기: idx번째 상태로 이동 (0 = 시작 위치)
+    function showReplay(idx) {
+      if (!replayFens) return;
+      replayIndex = Math.max(0, Math.min(replayFens.length - 1, idx));
+      renderBoard(replayFens[replayIndex]);
+      replayLabel.textContent = replayIndex === 0
+        ? ' 시작 위치'
+        : ' ' + replayIndex + '수째 후 (' + replayIndex + ' / ' + (replayFens.length - 1) + ')';
+
+      document.querySelectorAll('.moves td.mv').forEach((td) => {
+        td.classList.toggle('sel', Number(td.dataset.i) === replayIndex - 1);
+      });
+    }
+
+    function sendMove() {
+      const text = moveInput.value.trim();
+      if (!text) return;
+      errorEl.textContent = '';
+      socket.emit('move', text);
+      moveInput.value = '';
+      moveInput.focus();
+    }
+
+    $('createBtn').onclick = () => socket.emit('createRoom');
+    $('joinBtn').onclick = () => socket.emit('joinRoom', $('codeInput').value);
+    moveBtn.onclick = sendMove;
+    moveInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMove();
+    });
+
+    // 시작 / 다시 플레이 / 색 바꾸기
+    readyBtn.onclick = () => socket.emit('ready');
+    swapBtn.onclick = () => socket.emit('swapColors');
+
+    // 기권 / 무승부
+    $('resignBtn').onclick = () => {
+      if (confirm('정말 기권할까요?')) socket.emit('resign');
+    };
+    drawBtn.onclick = () => socket.emit('offerDraw');
+    $('acceptDrawBtn').onclick = () => socket.emit('acceptDraw');
+    $('declineDrawBtn').onclick = () => {
+      socket.emit('declineDraw');
+      offerBox.style.display = 'none';
+    };
+
+    // 기보 보기 조작
+    $('firstBtn').onclick = () => showReplay(0);
+    $('prevBtn').onclick = () => showReplay(replayIndex - 1);
+    $('nextBtn').onclick = () => showReplay(replayIndex + 1);
+    $('lastBtn').onclick = () => showReplay(replayFens.length - 1);
+
+    historyBody.addEventListener('click', (e) => {
+      const td = e.target.closest('td.mv');
+      if (!td || !replayFens || td.textContent === '') return;
+      showReplay(Number(td.dataset.i) + 1);
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (!replayFens) return;
+      if (e.key === 'ArrowLeft') showReplay(replayIndex - 1);
+      if (e.key === 'ArrowRight') showReplay(replayIndex + 1);
+    });
+
+    socket.on('roomCreated', ({ code, color }) => {
+      myColor = color;
+      $('lobby').style.display = 'none';
+      message.textContent = '방 코드: ' + code + ' - 친구에게 코드를 알려주세요. 기다리는 중...';
+    });
+
+    socket.on('roomJoined', ({ color }) => {
+      myColor = color;
+      $('lobby').style.display = 'none';
+    });
+
+    // 대기 화면 (게임 시작 전, 그리고 게임이 끝난 뒤)
+    socket.on('lobby', ({ color, isHost, meReady, oppReady, rematch }) => {
+      const colorChanged = myColor && myColor !== color;
+      myColor = color;
+
+      $('lobby').style.display = 'none';
+      message.textContent = '';
+      gameEl.style.display = 'block';
+      readyArea.style.display = 'block';
+
+      if (!replayFens) {
+        // 첫 게임 시작 전
+        statusEl.textContent = '두 명이 모였어요! 준비가 되면 시작을 눌러주세요.';
+      }
+
+      lobbyInfo.textContent = '다음 판 내 색: ' + (color === 'white' ? '백' : '흑') + (isHost ? ' (방장)' : '');
+      swapBtn.style.display = isHost ? 'inline-block' : 'none';
+
+      readyBtn.disabled = meReady;
+      readyBtn.textContent = meReady ? '대기 중...' : (rematch ? '다시 플레이' : '게임 시작');
+
+      if (colorChanged) {
+        readyNote.textContent = '방장이 색을 바꿨어요. 준비 상태가 초기화됐어요.';
+      } else if (meReady) {
+        readyNote.textContent = '상대도 누르면 바로 시작해요.';
+      } else if (oppReady) {
+        readyNote.textContent = '상대가 준비됐어요! 버튼을 누르면 시작해요.';
+      } else {
+        readyNote.textContent = '';
+      }
+    });
+
+    // 게임 시작 (처음, 그리고 다시 플레이)
+    socket.on('gameStart', ({ turn: t, color }) => {
+      myColor = color;
+      turn = t;
+      gameEnded = false;
+      replayFens = null;
+
+      replayArea.style.display = 'none';
+      historyBox.classList.remove('replaying');
+      readyArea.style.display = 'none';
+      playArea.style.display = 'block';
+      historyWrap.style.display = 'block';
+
+      noticeEl.textContent = '';
+      errorEl.textContent = '';
+      resetDrawUI();
+      renderHistory([]);
+      showStatus();
+      moveInput.focus();
+    });
+
+    socket.on('moved', ({ san, by, history, turn: t, check }) => {
+      turn = t;
+      renderHistory(history);
+      errorEl.textContent = '';
+      const byKo = by === 'white' ? '백' : '흑';
+      showStatus(' (방금 ' + byKo + ': ' + san + (check ? ' - 체크!' : '') + ')');
+    });
+
+    socket.on('illegalMove', (text) => {
+      errorEl.textContent = text;
+    });
+
+    // 무승부 관련
+    socket.on('drawSent', () => {
+      drawBtn.disabled = true;
+      drawBtn.textContent = '제안함 (상대 답변 대기 중)';
+      noticeEl.textContent = '';
+    });
+    socket.on('drawOffered', () => {
+      offerBox.style.display = 'block';
+      noticeEl.textContent = '';
+    });
+    socket.on('drawDeclined', () => {
+      resetDrawUI();
+      noticeEl.textContent = '상대가 무승부 제안을 거절했어요.';
+    });
+    socket.on('drawCleared', () => {
+      resetDrawUI();
+      noticeEl.textContent = '';
+    });
+
+    socket.on('gameOver', ({ reason, winner, fens }) => {
+      gameEnded = true;
+      playArea.style.display = 'none';
+      noticeEl.textContent = '';
+      errorEl.textContent = '';
+
+      const iWon = winner === myColor;
+      if (reason === 'checkmate') {
+        statusEl.textContent = '체크메이트! ' + (iWon ? '내가 이겼어요 🎉' : '내가 졌어요');
+      } else if (reason === 'resign') {
+        statusEl.textContent = iWon ? '상대가 기권했어요. 내가 이겼어요 🎉' : '내가 기권했어요.';
+      } else if (reason === 'agreement') {
+        statusEl.textContent = '서로 동의해서 무승부로 끝났어요.';
+      } else if (reason === 'left') {
+        statusEl.textContent = '상대방이 나가서 게임이 끝났어요.';
+      } else if (reason === 'stalemate') {
+        statusEl.textContent = '스테일메이트로 무승부예요.';
+      } else {
+        statusEl.textContent = '무승부예요.';
+      }
+
+      // 이제부터 체스판 공개! 마지막 위치부터 보여줘요
+      replayFlip = myColor === 'black'; // 이 판에서 내가 흑이었으면 뒤집어서 보여줘요
+      replayFens = fens;
+      replayArea.style.display = 'block';
+      historyBox.classList.add('replaying');
+      showReplay(fens.length - 1);
+    });
+
+    socket.on('errorMsg', (text) => {
+      message.textContent = text;
+    });
+
+    socket.on('opponentLeft', () => {
+      readyArea.style.display = 'none';
+      noticeEl.textContent = '상대방이 방에서 나갔어요. 더 이상 이어서 할 수 없어요.';
+      if (!replayFens) {
+        statusEl.textContent = '상대방이 나갔어요.';
+      }
+    });
+  </script>
+</body>
+</html>
