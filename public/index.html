@@ -12,6 +12,11 @@
     .help code { background: #e2e2e2; padding: 1px 6px; border-radius: 4px; }
     details.help summary { cursor: pointer; font-weight: bold; }
 
+    .settings { background: #f6f1ff; border-radius: 8px; padding: 10px 18px; margin: 12px 0; line-height: 2; }
+    .settings h3 { margin: 6px 0; }
+    .settings small { font-weight: normal; color: #666; }
+    .settings .hint { font-size: 13px; color: #666; line-height: 1.5; }
+
     table.moves { border-collapse: collapse; width: 100%; }
     .moves th, .moves td { padding: 4px 10px; border-bottom: 1px solid #ddd; text-align: left; }
     .moves th { background: #f4f4f4; }
@@ -21,7 +26,7 @@
     .replaying .moves td.mv:hover { background: #fff3cf; }
 
     /* 8줄을 모두 같은 높이로 고정해요 */
-    #board {
+    .board {
       display: grid;
       grid-template-columns: repeat(8, 1fr);
       grid-template-rows: repeat(8, 1fr);
@@ -40,17 +45,65 @@
     .sq span.b { color: #000; }
     .replay-controls button { font-size: 16px; padding: 4px 12px; }
 
+    .clocks { display: flex; gap: 10px; margin: 8px 0; }
+    .clock { flex: 1; text-align: center; padding: 8px; border-radius: 8px; background: #f1f1f1; font-size: 18px; font-variant-numeric: tabular-nums; }
+    .clock.active { background: #d9f2d9; font-weight: bold; }
+    .clock.low { color: crimson; }
+
     #offerBox { background: #fff3cf; border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
     #readyArea { background: #eef5ff; border-radius: 8px; padding: 8px 14px; margin: 12px 0; }
     #readyBtn { font-size: 16px; padding: 6px 16px; }
+    #peekBox { background: #f4f4f4; border-radius: 8px; padding: 4px 12px; margin: 8px 0; }
     #notice { color: #2a6fdb; }
   </style>
 </head>
 <body>
   <h1>블라인드 체스</h1>
+  <div><button id="leaveBtn" style="display:none">방 나가기</button></div>
 
   <div id="lobby">
-    <button id="createBtn">방 만들기</button>
+    <div class="settings">
+      <h3>방 설정 <small>(방장이 방을 만들 때 정해요)</small></h3>
+      <div>
+        <label>시간 제한
+          <select id="setMinutes">
+            <option value="0">없음</option>
+            <option value="3">각자 3분</option>
+            <option value="5">각자 5분</option>
+            <option value="10">각자 10분</option>
+            <option value="15">각자 15분</option>
+            <option value="30">각자 30분</option>
+            <option value="60">각자 60분</option>
+          </select>
+        </label>
+      </div>
+      <div>
+        <label>수를 둘 때마다 추가 시간
+          <select id="setIncrement">
+            <option value="0">없음</option>
+            <option value="2">+2초</option>
+            <option value="5">+5초</option>
+            <option value="10">+10초</option>
+          </select>
+        </label>
+      </div>
+      <div>
+        <label>체스판 보기 횟수 (각자)
+          <select id="setViews">
+            <option value="0">볼 수 없음 (순수 블라인드)</option>
+            <option value="1">1회</option>
+            <option value="2">2회</option>
+            <option value="3">3회</option>
+            <option value="5">5회</option>
+            <option value="10">10회</option>
+            <option value="-1">무제한</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint">시간 제한이 '없음'이면 추가 시간은 적용되지 않아요. 체스판은 한 번 볼 때 5초 동안만 보여줘요.</p>
+      <button id="createBtn">방 만들기</button>
+    </div>
+
     <p>또는 친구가 알려준 코드 입력:</p>
     <input id="codeInput" placeholder="방 코드" maxlength="6">
     <button id="joinBtn">입장</button>
@@ -80,6 +133,7 @@
     <!-- 게임 시작 전 / 게임이 끝난 뒤에 보이는 영역 -->
     <div id="readyArea" style="display:none">
       <p id="lobbyInfo"></p>
+      <p id="settingsInfo" style="font-size:13px;color:#555"></p>
       <button id="swapBtn" style="display:none">색 바꾸기 (백 ↔ 흑)</button>
       <button id="readyBtn">게임 시작</button>
       <p id="readyNote"></p>
@@ -87,6 +141,11 @@
 
     <!-- 게임 중에만 보이는 영역 -->
     <div id="playArea" style="display:none">
+      <div id="clocks" class="clocks" style="display:none">
+        <div id="clockOpp" class="clock"></div>
+        <div id="clockMe" class="clock"></div>
+      </div>
+
       <details class="help">
         <summary>기물 이동법 다시 보기</summary>
         <ul>
@@ -102,7 +161,15 @@
       </div>
       <p id="error" style="color:crimson"></p>
 
-      <div id="actionArea">
+      <div id="peekArea" style="display:none">
+        <button id="peekBtn">체스판 보기</button>
+        <div id="peekBox" style="display:none">
+          <div id="peekBoard" class="board"></div>
+          <p>5초 동안만 보여줘요. <button id="peekClose">닫기</button></p>
+        </div>
+      </div>
+
+      <div id="actionArea" style="margin-top:8px">
         <button id="drawBtn">무승부 제안</button>
         <button id="resignBtn">기권</button>
       </div>
@@ -115,7 +182,7 @@
 
     <div id="replayArea" style="display:none">
       <h3>기보 보기</h3>
-      <div id="board"></div>
+      <div id="board" class="board"></div>
       <div class="replay-controls">
         <button id="firstBtn">⏮</button>
         <button id="prevBtn">◀</button>
@@ -142,6 +209,27 @@
     const socket = io();
     const $ = (id) => document.getElementById(id);
 
+    const VIEW_SECONDS = 5; // 체스판이 보이는 시간 (초)
+
+    // ---------- 이 탭을 기억하는 값 (새로고침해도 유지돼요) ----------
+    const store = {
+      get(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } },
+      set(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} },
+      del(k) { try { sessionStorage.removeItem(k); } catch (e) {} },
+    };
+
+    function getPid() {
+      let id = store.get('bc_pid');
+      if (!id) {
+        id = (window.crypto && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : 'p' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        store.set('bc_pid', id);
+      }
+      return id;
+    }
+
+    // ---------- 화면 요소 ----------
     const message = $('message');
     const gameEl = $('game');
     const statusEl = $('status');
@@ -149,6 +237,7 @@
     const errorEl = $('error');
     const readyArea = $('readyArea');
     const lobbyInfo = $('lobbyInfo');
+    const settingsInfo = $('settingsInfo');
     const swapBtn = $('swapBtn');
     const readyBtn = $('readyBtn');
     const readyNote = $('readyNote');
@@ -163,16 +252,35 @@
     const replayLabel = $('replayLabel');
     const drawBtn = $('drawBtn');
     const offerBox = $('offerBox');
+    const leaveBtn = $('leaveBtn');
+    const clocksEl = $('clocks');
+    const clockMe = $('clockMe');
+    const clockOpp = $('clockOpp');
+    const peekArea = $('peekArea');
+    const peekBtn = $('peekBtn');
+    const peekBox = $('peekBox');
+    const peekBoard = $('peekBoard');
 
-    let myColor = null;    // 'white' 또는 'black'
-    let turn = 'w';        // 지금 차례
+    // ---------- 상태 ----------
+    let myColor = null;     // 'white' 또는 'black'
+    let settings = { minutes: 0, increment: 0, views: 0 };
+    let turn = 'w';         // 지금 차례
     let gameEnded = false;
-    let replayFens = null; // 게임이 끝나면 채워져요
+    let replayFens = null;  // 게임이 끝나면 채워져요
     let replayIndex = 0;
     let replayFlip = false; // 기보 판을 뒤집어서 볼지 (흑이었으면 true)
 
+    let timedGame = false;  // 이번 판에 시계가 있는지
+    let clockData = { w: 0, b: 0 };
+    let clockAt = 0;        // 시계 값을 받은 시각
+    let clockRunning = false;
+
+    let viewsLeft = 0;      // 남은 체스판 보기 횟수 (-1 = 무제한)
+    let peekTimer = null;
+
     const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟\uFE0E' };
 
+    // ---------- 도우미 ----------
     function isMyTurn() {
       return (myColor === 'white' && turn === 'w') ||
              (myColor === 'black' && turn === 'b');
@@ -185,13 +293,74 @@
       statusEl.textContent = '나는 ' + colorKo + ' / ' + turnText + (extra || '');
     }
 
+    function settingsText(s) {
+      const t = s.minutes > 0
+        ? s.minutes + '분' + (s.increment > 0 ? ' + ' + s.increment + '초' : '')
+        : '없음';
+      const v = s.views === 0 ? '볼 수 없음' : (s.views === -1 ? '무제한' : s.views + '회');
+      return '시간 제한: ' + t + ' / 체스판 보기: ' + v;
+    }
+
     function resetDrawUI() {
       drawBtn.disabled = false;
       drawBtn.textContent = '무승부 제안';
       offerBox.style.display = 'none';
     }
 
-    // 수 기록을 세로 표로 그리기
+    // ---------- 시계 ----------
+    function fmt(ms) {
+      const s = Math.ceil(ms / 1000);
+      return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }
+
+    function setClocks(c) {
+      if (c) {
+        timedGame = true;
+        clockData = { w: c.w, b: c.b };
+        clockAt = Date.now();
+        clockRunning = true;
+        clocksEl.style.display = 'flex';
+        renderClocks();
+      } else {
+        timedGame = false;
+        clockRunning = false;
+        clocksEl.style.display = 'none';
+      }
+    }
+
+    function renderClocks() {
+      if (!timedGame) return;
+      const meKey = myColor === 'white' ? 'w' : 'b';
+      const oppKey = meKey === 'w' ? 'b' : 'w';
+      const cur = { w: clockData.w, b: clockData.b };
+      if (clockRunning) cur[turn] = Math.max(0, cur[turn] - (Date.now() - clockAt));
+
+      clockMe.textContent = '나 (' + (meKey === 'w' ? '백' : '흑') + ') ' + fmt(cur[meKey]);
+      clockOpp.textContent = '상대 (' + (oppKey === 'w' ? '백' : '흑') + ') ' + fmt(cur[oppKey]);
+      clockMe.classList.toggle('active', clockRunning && turn === meKey);
+      clockOpp.classList.toggle('active', clockRunning && turn === oppKey);
+      clockMe.classList.toggle('low', cur[meKey] < 10000);
+      clockOpp.classList.toggle('low', cur[oppKey] < 10000);
+    }
+    setInterval(renderClocks, 250);
+
+    // ---------- 체스판 보기 (게임 중) ----------
+    function updatePeekUI() {
+      if (settings.views === 0) {
+        peekArea.style.display = 'none';
+        return;
+      }
+      peekArea.style.display = 'block';
+      peekBtn.textContent = '체스판 보기 (' + (viewsLeft === -1 ? '무제한' : '남은 ' + viewsLeft + '회') + ')';
+      peekBtn.disabled = viewsLeft === 0;
+    }
+
+    function hidePeek() {
+      clearTimeout(peekTimer);
+      peekBox.style.display = 'none';
+    }
+
+    // ---------- 그리기 ----------
     function renderHistory(history) {
       historyBody.innerHTML = '';
       if (history.length === 0) {
@@ -208,8 +377,8 @@
       }
     }
 
-    // FEN 문장으로 체스판 그리기
-    function renderBoard(fen) {
+    // FEN 문장으로 체스판 그리기 (target: 그릴 곳, flip: 뒤집어서 볼지)
+    function renderBoard(fen, target, flip) {
       const rows = fen.split(' ')[0].split('/');
       const grid = rows.map((row) => {
         const line = [];
@@ -223,11 +392,11 @@
         return line;
       });
 
-      boardEl.innerHTML = '';
+      target.innerHTML = '';
       for (let i = 0; i < 8; i++) {
         for (let j = 0; j < 8; j++) {
-          const r = replayFlip ? 7 - i : i;
-          const c = replayFlip ? 7 - j : j;
+          const r = flip ? 7 - i : i;
+          const c = flip ? 7 - j : j;
           const piece = grid[r][c];
 
           const sq = document.createElement('div');
@@ -251,7 +420,7 @@
             s.textContent = 'abcdefgh'[c];
             sq.appendChild(s);
           }
-          boardEl.appendChild(sq);
+          target.appendChild(sq);
         }
       }
     }
@@ -260,7 +429,7 @@
     function showReplay(idx) {
       if (!replayFens) return;
       replayIndex = Math.max(0, Math.min(replayFens.length - 1, idx));
-      renderBoard(replayFens[replayIndex]);
+      renderBoard(replayFens[replayIndex], boardEl, replayFlip);
       replayLabel.textContent = replayIndex === 0
         ? ' 시작 위치'
         : ' ' + replayIndex + '수째 후 (' + replayIndex + ' / ' + (replayFens.length - 1) + ')';
@@ -270,6 +439,145 @@
       });
     }
 
+    // ---------- 화면 전환 함수들 ----------
+    function enterRoomUI() {
+      $('lobby').style.display = 'none';
+      leaveBtn.style.display = 'inline-block';
+    }
+
+    function showWaiting(code, s) {
+      enterRoomUI();
+      gameEl.style.display = 'none';
+      message.textContent = '방 코드: ' + code + ' - 친구에게 코드를 알려주세요. 기다리는 중... (' + settingsText(s) + ')';
+    }
+
+    function showLobby(info) {
+      const colorChanged = myColor && myColor !== info.color;
+      myColor = info.color;
+      settings = info.settings;
+
+      enterRoomUI();
+      message.textContent = '';
+      gameEl.style.display = 'block';
+      readyArea.style.display = 'block';
+
+      if (!replayFens) {
+        // 첫 게임 시작 전
+        statusEl.textContent = '두 명이 모였어요! 준비가 되면 시작을 눌러주세요.';
+      }
+
+      lobbyInfo.textContent = '다음 판 내 색: ' + (info.color === 'white' ? '백' : '흑') + (info.isHost ? ' (방장)' : '');
+      settingsInfo.textContent = settingsText(info.settings);
+      swapBtn.style.display = info.isHost ? 'inline-block' : 'none';
+
+      readyBtn.disabled = info.meReady;
+      readyBtn.textContent = info.meReady ? '대기 중...' : (info.rematch ? '다시 플레이' : '게임 시작');
+
+      if (colorChanged) {
+        readyNote.textContent = '방장이 색을 바꿨어요. 준비 상태가 초기화됐어요.';
+      } else if (info.meReady) {
+        readyNote.textContent = '상대도 누르면 바로 시작해요.';
+      } else if (info.oppReady) {
+        readyNote.textContent = '상대가 준비됐어요! 버튼을 누르면 시작해요.';
+      } else {
+        readyNote.textContent = '';
+      }
+    }
+
+    // 게임 화면 켜기 (새 게임 시작, 그리고 새로고침 후 복귀할 때 모두 사용)
+    function startGameUI(o) {
+      myColor = o.color;
+      turn = o.turn;
+      if (o.settings) settings = o.settings;
+      gameEnded = false;
+      replayFens = null;
+
+      enterRoomUI();
+      message.textContent = '';
+      gameEl.style.display = 'block';
+      replayArea.style.display = 'none';
+      historyBox.classList.remove('replaying');
+      readyArea.style.display = 'none';
+      playArea.style.display = 'block';
+      historyWrap.style.display = 'block';
+
+      noticeEl.textContent = '';
+      errorEl.textContent = '';
+
+      resetDrawUI();
+      if (o.draw === 'sent') {
+        drawBtn.disabled = true;
+        drawBtn.textContent = '제안함 (상대 답변 대기 중)';
+      } else if (o.draw === 'received') {
+        offerBox.style.display = 'block';
+      }
+
+      renderHistory(o.history || []);
+      setClocks(o.clocks);
+
+      viewsLeft = o.viewsLeft;
+      hidePeek();
+      updatePeekUI();
+
+      showStatus(o.check ? ' - 체크 상태예요!' : '');
+      moveInput.focus();
+    }
+
+    // 게임이 끝난 화면 (gameColor: 이 판에서 내가 맡았던 색)
+    function showGameOverUI(r, gameColor) {
+      gameEnded = true;
+      clockRunning = false;
+      hidePeek();
+      enterRoomUI();
+      message.textContent = '';
+      gameEl.style.display = 'block';
+      playArea.style.display = 'none';
+      noticeEl.textContent = '';
+      errorEl.textContent = '';
+
+      const iWon = r.winner === gameColor;
+      if (r.reason === 'checkmate') {
+        statusEl.textContent = '체크메이트! ' + (iWon ? '내가 이겼어요 🎉' : '내가 졌어요');
+      } else if (r.reason === 'resign') {
+        statusEl.textContent = iWon ? '상대가 기권했어요. 내가 이겼어요 🎉' : '내가 기권했어요.';
+      } else if (r.reason === 'timeout') {
+        statusEl.textContent = iWon ? '상대의 시간이 다 됐어요. 내가 이겼어요 🎉' : '내 시간이 다 됐어요. 졌어요.';
+      } else if (r.reason === 'agreement') {
+        statusEl.textContent = '서로 동의해서 무승부로 끝났어요.';
+      } else if (r.reason === 'left') {
+        statusEl.textContent = '상대방이 나가서 게임이 끝났어요.';
+        store.del('bc_room'); // 방이 사라졌으니 기억도 지워요
+      } else if (r.reason === 'stalemate') {
+        statusEl.textContent = '스테일메이트로 무승부예요.';
+      } else {
+        statusEl.textContent = '무승부예요.';
+      }
+
+      // 이제부터 체스판 공개! 마지막 위치부터 보여줘요
+      replayFlip = gameColor === 'black';
+      replayFens = r.fens;
+      renderHistory(r.history);
+      historyWrap.style.display = 'block';
+      replayArea.style.display = 'block';
+      historyBox.classList.add('replaying');
+      showReplay(r.fens.length - 1);
+    }
+
+    // ---------- 버튼 연결 ----------
+    $('createBtn').onclick = () => {
+      socket.emit('createRoom', {
+        playerId: getPid(),
+        settings: {
+          minutes: Number($('setMinutes').value),
+          increment: Number($('setIncrement').value),
+          views: Number($('setViews').value),
+        },
+      });
+    };
+    $('joinBtn').onclick = () => {
+      socket.emit('joinRoom', { playerId: getPid(), code: $('codeInput').value });
+    };
+
     function sendMove() {
       const text = moveInput.value.trim();
       if (!text) return;
@@ -278,19 +586,14 @@
       moveInput.value = '';
       moveInput.focus();
     }
-
-    $('createBtn').onclick = () => socket.emit('createRoom');
-    $('joinBtn').onclick = () => socket.emit('joinRoom', $('codeInput').value);
     moveBtn.onclick = sendMove;
     moveInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') sendMove();
     });
 
-    // 시작 / 다시 플레이 / 색 바꾸기
     readyBtn.onclick = () => socket.emit('ready');
     swapBtn.onclick = () => socket.emit('swapColors');
 
-    // 기권 / 무승부
     $('resignBtn').onclick = () => {
       if (confirm('정말 기권할까요?')) socket.emit('resign');
     };
@@ -301,7 +604,16 @@
       offerBox.style.display = 'none';
     };
 
-    // 기보 보기 조작
+    peekBtn.onclick = () => socket.emit('viewBoard');
+    $('peekClose').onclick = hidePeek;
+
+    leaveBtn.onclick = () => {
+      if (!confirm('방을 나갈까요? 진행 중인 게임이 있으면 끝나요.')) return;
+      const done = () => { store.del('bc_room'); location.reload(); };
+      socket.emit('leaveRoom', done);
+      setTimeout(done, 1000); // 혹시 응답이 없어도 나가요
+    };
+
     $('firstBtn').onclick = () => showReplay(0);
     $('prevBtn').onclick = () => showReplay(replayIndex - 1);
     $('nextBtn').onclick = () => showReplay(replayIndex + 1);
@@ -319,72 +631,75 @@
       if (e.key === 'ArrowRight') showReplay(replayIndex + 1);
     });
 
-    socket.on('roomCreated', ({ code, color }) => {
-      myColor = color;
-      $('lobby').style.display = 'none';
-      message.textContent = '방 코드: ' + code + ' - 친구에게 코드를 알려주세요. 기다리는 중...';
+    // ---------- 서버에서 오는 소식 ----------
+
+    // 연결될 때마다 (처음 접속, 새로고침, 끊겼다 다시 연결) 원래 방이 있으면 복귀 시도
+    socket.on('connect', () => {
+      const code = store.get('bc_room');
+      if (code) socket.emit('resume', { playerId: getPid(), code });
     });
 
-    socket.on('roomJoined', ({ color }) => {
-      myColor = color;
-      $('lobby').style.display = 'none';
+    socket.on('disconnect', (reason) => {
+      if (reason === 'io client disconnect') return;
+      if (store.get('bc_room')) noticeEl.textContent = '연결이 끊겼어요. 다시 연결하는 중...';
     });
 
-    // 대기 화면 (게임 시작 전, 그리고 게임이 끝난 뒤)
-    socket.on('lobby', ({ color, isHost, meReady, oppReady, rematch }) => {
-      const colorChanged = myColor && myColor !== color;
-      myColor = color;
+    socket.on('resumed', (s) => {
+      store.set('bc_room', s.code);
+      myColor = s.color;
+      settings = s.settings;
+      enterRoomUI();
 
-      $('lobby').style.display = 'none';
-      message.textContent = '';
-      gameEl.style.display = 'block';
-      readyArea.style.display = 'block';
-
-      if (!replayFens) {
-        // 첫 게임 시작 전
-        statusEl.textContent = '두 명이 모였어요! 준비가 되면 시작을 눌러주세요.';
-      }
-
-      lobbyInfo.textContent = '다음 판 내 색: ' + (color === 'white' ? '백' : '흑') + (isHost ? ' (방장)' : '');
-      swapBtn.style.display = isHost ? 'inline-block' : 'none';
-
-      readyBtn.disabled = meReady;
-      readyBtn.textContent = meReady ? '대기 중...' : (rematch ? '다시 플레이' : '게임 시작');
-
-      if (colorChanged) {
-        readyNote.textContent = '방장이 색을 바꿨어요. 준비 상태가 초기화됐어요.';
-      } else if (meReady) {
-        readyNote.textContent = '상대도 누르면 바로 시작해요.';
-      } else if (oppReady) {
-        readyNote.textContent = '상대가 준비됐어요! 버튼을 누르면 시작해요.';
+      if (s.phase === 'waiting') {
+        showWaiting(s.code, s.settings);
+      } else if (s.phase === 'playing') {
+        startGameUI(s);
+      } else if (s.phase === 'over') {
+        showGameOverUI(s.result, s.result.gameColor);
+        showLobby(s.lobby);
       } else {
-        readyNote.textContent = '';
+        showLobby(s.lobby);
+      }
+
+      if (s.hasOpponent && !s.opponentConnected) {
+        noticeEl.textContent = '상대방 연결이 끊겨 있어요. 돌아오길 기다리는 중...';
       }
     });
 
-    // 게임 시작 (처음, 그리고 다시 플레이)
-    socket.on('gameStart', ({ turn: t, color }) => {
-      myColor = color;
-      turn = t;
-      gameEnded = false;
-      replayFens = null;
-
-      replayArea.style.display = 'none';
-      historyBox.classList.remove('replaying');
-      readyArea.style.display = 'none';
-      playArea.style.display = 'block';
-      historyWrap.style.display = 'block';
-
-      noticeEl.textContent = '';
-      errorEl.textContent = '';
-      resetDrawUI();
-      renderHistory([]);
-      showStatus();
-      moveInput.focus();
+    socket.on('resumeFailed', () => {
+      store.del('bc_room');
+      alert('이전 방을 찾을 수 없어요. 처음 화면으로 돌아가요.');
+      location.reload();
     });
 
-    socket.on('moved', ({ san, by, history, turn: t, check }) => {
+    socket.on('replaced', () => {
+      document.body.innerHTML = '<p>다른 창에서 같은 방에 접속해서 이 창은 종료됐어요. 이 창은 닫아주세요.</p>';
+    });
+
+    socket.on('roomCreated', ({ code, color, settings: s }) => {
+      store.set('bc_room', code);
+      myColor = color;
+      settings = s;
+      showWaiting(code, s);
+    });
+
+    socket.on('roomJoined', ({ code, color, settings: s }) => {
+      store.set('bc_room', code);
+      myColor = color;
+      settings = s;
+      enterRoomUI();
+    });
+
+    socket.on('lobby', showLobby);
+
+    socket.on('gameStart', (o) => {
+      startGameUI({ ...o, history: [], check: false, draw: 'none' });
+    });
+
+    socket.on('moved', ({ san, by, history, turn: t, check, clocks }) => {
       turn = t;
+      setClocks(clocks);
+      hidePeek(); // 판이 바뀌었으니 예전 모습은 닫아요
       renderHistory(history);
       errorEl.textContent = '';
       const byKo = by === 'white' ? '백' : '흑';
@@ -393,6 +708,21 @@
 
     socket.on('illegalMove', (text) => {
       errorEl.textContent = text;
+    });
+
+    // 체스판 보기
+    socket.on('boardView', ({ fen, left }) => {
+      viewsLeft = left;
+      updatePeekUI();
+      renderBoard(fen, peekBoard, myColor === 'black');
+      peekBox.style.display = 'block';
+      clearTimeout(peekTimer);
+      peekTimer = setTimeout(hidePeek, VIEW_SECONDS * 1000);
+    });
+    socket.on('viewDenied', (text) => {
+      errorEl.textContent = text;
+      viewsLeft = 0;
+      updatePeekUI();
     });
 
     // 무승부 관련
@@ -414,40 +744,23 @@
       noticeEl.textContent = '';
     });
 
-    socket.on('gameOver', ({ reason, winner, fens }) => {
-      gameEnded = true;
-      playArea.style.display = 'none';
-      noticeEl.textContent = '';
-      errorEl.textContent = '';
-
-      const iWon = winner === myColor;
-      if (reason === 'checkmate') {
-        statusEl.textContent = '체크메이트! ' + (iWon ? '내가 이겼어요 🎉' : '내가 졌어요');
-      } else if (reason === 'resign') {
-        statusEl.textContent = iWon ? '상대가 기권했어요. 내가 이겼어요 🎉' : '내가 기권했어요.';
-      } else if (reason === 'agreement') {
-        statusEl.textContent = '서로 동의해서 무승부로 끝났어요.';
-      } else if (reason === 'left') {
-        statusEl.textContent = '상대방이 나가서 게임이 끝났어요.';
-      } else if (reason === 'stalemate') {
-        statusEl.textContent = '스테일메이트로 무승부예요.';
-      } else {
-        statusEl.textContent = '무승부예요.';
-      }
-
-      // 이제부터 체스판 공개! 마지막 위치부터 보여줘요
-      replayFlip = myColor === 'black'; // 이 판에서 내가 흑이었으면 뒤집어서 보여줘요
-      replayFens = fens;
-      replayArea.style.display = 'block';
-      historyBox.classList.add('replaying');
-      showReplay(fens.length - 1);
+    socket.on('gameOver', (data) => {
+      showGameOverUI(data, data.gameColor);
     });
 
     socket.on('errorMsg', (text) => {
       message.textContent = text;
     });
 
+    // 상대 연결 상태
+    socket.on('opponentDisconnected', () => {
+      noticeEl.textContent = '상대방 연결이 끊겼어요. 돌아오길 기다리는 중...';
+    });
+    socket.on('opponentBack', () => {
+      noticeEl.textContent = '';
+    });
     socket.on('opponentLeft', () => {
+      store.del('bc_room');
       readyArea.style.display = 'none';
       noticeEl.textContent = '상대방이 방에서 나갔어요. 더 이상 이어서 할 수 없어요.';
       if (!replayFens) {
